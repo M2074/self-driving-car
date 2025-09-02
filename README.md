@@ -263,9 +263,9 @@ The network automatically learns road features (lane boundaries, curves, etc.) d
 
 ---
 
-## 🎥 Demo
+## 🎥 Demo Video
 
-*(Insert a GIF or screenshot of the simulator driving autonomously here)*
+https://www.youtube.com/watch?v=Zr84TbaDZfM
 
 ```md
 ![Demo](demo.gif)
