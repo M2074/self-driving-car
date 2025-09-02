@@ -261,15 +261,13 @@ The network automatically learns road features (lane boundaries, curves, etc.) d
 * Successful autonomous navigation
 * Adaptive speed control
 
+
 ---
+## 🎥 Demo
 
-## 🎥 Demo Video
-
-https://www.youtube.com/watch?v=Zr84TbaDZfM
-
-```md
-![Demo](demo.gif)
-```
+### 📺 Video
+[![Watch the demo](https://img.youtube.com/vi/Zr84TbaDZfM/0.jpg)](https://www.youtube.com/watch?v=Zr84TbaDZfM)  
+_Click the thumbnail to watch on YouTube_
 
 ---
 
