@@ -76,12 +76,12 @@ selfDrivingSimulator/
 ├── 🏋️ TrainingSimulation.py    # Model training pipeline
 ├── 🎮 TestSimulation.py        # Real-time simulator interface
 ├── 🛠️ utils.py                 # Utility functions and model architecture
-├── 📊 loss\_curve.png           # Training loss visualization
+├── 📊 loss\_curve.png          # Training loss visualization
 ├── 🤖 model.h5                 # Trained model file
 ├── 🖼️ test.jpg                 # Test image
 ├── 📁 data/                    # Training data directory
 │   ├── driving\_log.csv         # Driving data logs
-│   └── IMG/                    # Training images
+│   └── IMG/                     # Training images
 
 ````
 
