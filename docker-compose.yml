@@ -3,4 +3,4 @@ services:
     image: adityyaa/self-driving-car:latest  # remove this line to force a local build
     build: .
     ports:
-      - "4567:4567"
+      - "127.0.0.1:4567:4567"  # loopback only: the simulator runs on the same machine

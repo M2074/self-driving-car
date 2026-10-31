@@ -17,7 +17,7 @@ docker load -i self-driving-car-image.tar.gz
 
 ### 2. Start the AI driver
 ```powershell
-docker run --rm -p 4567:4567 self-driving-car
+docker run --rm -p 127.0.0.1:4567:4567 adityyaa/self-driving-car:latest
 ```
 Wait until it prints `✅ Model loaded successfully!` and `wsgi starting up`. Leave this window open.
 
