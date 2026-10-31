@@ -21,7 +21,7 @@ maxSpeed = 10
 
 # Load trained model
 print("📦 Loading model...")
-model = load_model("carmodel/model.h5")
+model = load_model("model.h5", compile=False)  # Inference only; saved optimizer config won't load on Keras 3
 print("✅ Model loaded successfully!")
 
 
@@ -38,10 +38,14 @@ def preProcess(img):
 # Receive telemetry data from simulator
 @sio.on("telemetry")
 def telemetry(sid, data):
+    # Simulator sends empty telemetry while the car is under manual control
+    if not data:
+        sio.emit("manual", data={})
+        return
+
     print("📸 Telemetry received")
-    print(data["Center"])
     # Current speed
-    speed = float(data["Speed"])
+    speed = float(data["speed"])
 
     # Convert image from base64 to RGB numpy array
     image = Image.open(BytesIO(base64.b64decode(data["image"])))

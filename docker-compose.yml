@@ -1,0 +1,6 @@
+services:
+  ai-driver:
+    image: adityyaa/self-driving-car:latest  # remove this line to force a local build
+    build: .
+    ports:
+      - "4567:4567"

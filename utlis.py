@@ -13,7 +13,7 @@ from tensorflow.keras.layers import Convolution2D, Flatten, Dense
 from tensorflow.keras.optimizers import Adam
 
 def getName(filepath):
-    return  filepath.split('\\')[-1]
+    return  filepath.replace('\\', '/').split('/')[-1]
 
 
 def importDataInfo(path):
@@ -71,8 +71,8 @@ def loadData(path, data):
     for i in range(len(data)):
         indexedData = data.iloc[i]
         # print(indexedData)
-        imagesPath.append(os.path.join(path, 'IMG', indexedData[0]))
-        steering.append(float(indexedData[3]))
+        imagesPath.append(os.path.join(path, 'IMG', indexedData.iloc[0]))
+        steering.append(float(indexedData.iloc[3]))
     imagesPath = np.asarray(imagesPath)
     steering = np.asarray(steering)
 
@@ -162,7 +162,7 @@ def creatModel():
     model.add(Dense(10, activation='elu'))
     model.add(Dense(1))
 
-    model.compile(Adam(lr=0.0001), loss='mse')
+    model.compile(Adam(learning_rate=0.0001), loss='mse')
 
     return model
 
