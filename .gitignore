@@ -4,3 +4,5 @@ __pycache__/
 data/
 downloads/
 *.tar.gz
+.env
+stuck_frames/

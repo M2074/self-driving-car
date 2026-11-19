@@ -26,3 +26,6 @@ eventlet>=0.33.0
 python-engineio==3.13.2
 python-socketio==4.6.1
 
+# Recovery agent: vision LLM over any OpenAI-compatible API (OpenRouter by default)
+openai>=1.40
+

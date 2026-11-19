@@ -13,11 +13,17 @@ import base64
 from io import BytesIO
 from PIL import Image
 import cv2
+import recovery
 
 # Initialize Socket.IO server and Flask app
 sio = socketio.Server()
 app = Flask(__name__)
 maxSpeed = 10
+
+# Stuck detection + recovery (reverse out, with a vision LLM as judge when configured)
+agent = recovery.Recovery()
+print("🤖 Recovery agent:", f"vision LLM {os.environ.get('LLM_MODEL')}" if recovery.llm
+      else "scripted only (set LLM_API_KEY to add the vision LLM)")
 
 # Load trained model
 print("📦 Loading model...")
@@ -65,6 +71,9 @@ def telemetry(sid, data):
     # Calculate throttle based on speed
     throttle = max(0.0, min(1.0, 1.0 - speed / maxSpeed))
 
+    # Recovery agent overrides the model while the car is stuck
+    steering, throttle = agent.step(speed, steering, throttle, data["image"])
+
     # Show values
     print(f"➡️ Steering: {steering:.3f}, Throttle: {throttle:.3f}, Speed: {speed:.2f}")
 
@@ -74,7 +83,9 @@ def telemetry(sid, data):
 
 @sio.on("connect")
 def connect(sid, environ):
+    global agent
     print("🔗 Simulator connected")
+    agent = recovery.Recovery()  # Fresh start each time Autonomous Mode is entered
     sendControl(0, 0)  # Stop on connect
 
 

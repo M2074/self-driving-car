@@ -34,6 +34,25 @@ Unzip it anywhere. No installation needed.
 
 The car connects to the AI on port 4567 and drives itself. The PowerShell window shows live steering values.
 
+## Optional: AI stuck recovery
+
+The `:agent` version of the driver gets itself unstuck. If the car has throttle but has not really moved for 3 seconds, it reverses out and lets the model drive again. With a free OpenRouter key, a vision AI looks at the camera frame first to confirm the car is stuck and to see which side the obstacle is on, so the car backs out away from it.
+
+1. Get a free API key:
+   - Open https://openrouter.ai/keys and sign in (Google, GitHub or email)
+   - Click **Create Key**, give it any name, and copy the key. It starts with `sk-or-v1-` and is shown only once
+   - Free models need no payment details
+2. Start the AI driver with the key in place of `sk-or-your-key`:
+```powershell
+docker run --rm -p 127.0.0.1:4567:4567 -e LLM_API_KEY=sk-or-your-key adityyaa/self-driving-car:agent
+```
+
+It prints `🤖 Recovery agent: vision LLM openrouter/free` at startup and `🤖 Agent: ...` lines whenever it steps in. Without the key it still recovers, by reversing straight back.
+
+- Keep the frames it judged: add `-v ${PWD}/stuck_frames:/app/stuck_frames`
+- Use one specific model instead of whichever free one is available: add `-e LLM_MODEL=google/gemma-4-31b-it:free`
+- Tune it: `-e STUCK_SECONDS=3 -e REVERSE_SECONDS=2.5`
+
 ## Troubleshooting
 - **Car doesn't move:** make sure step 2's window shows `Simulator connected` after you enter Autonomous Mode. If not, check nothing else uses port 4567.
 - **Docker errors on load/run:** Docker Desktop must be running (whale icon in system tray), with Linux containers mode (default).
