@@ -20,13 +20,14 @@ from openai import OpenAI
 # Tuning knobs, overridable with environment variables (no rebuild needed)
 STUCK_SPEED = float(os.environ.get("STUCK_SPEED", 2.5))  # mph; a wedged car still creeps at ~1 mph, cruising is ~9
 STUCK_SECONDS = float(os.environ.get("STUCK_SECONDS", 3.0))  # this long under throttle below STUCK_SPEED = stuck
-REVERSE_SECONDS = float(os.environ.get("REVERSE_SECONDS", 2.5))  # first attempt; repeats within a minute back up longer
+REVERSE_SECONDS = float(os.environ.get("REVERSE_SECONDS", 4.5))  # each reverse, at full throttle; 5 s on repeat attempts
+REVERSE_ENOUGH = 7.0  # mph; a car rolling back this fast has backed out (about 3 m), so the reverse ends there
 FORWARD_SECONDS = 2.0  # each forward push of the multi-point turn
 LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", 20))  # seconds before an unanswered LLM request is dropped
 REVERSE_THROTTLE = -1.0  # full reverse; the simulator reverses on negative throttle below 5 mph
 REVERSE_STEER = float(os.environ.get("REVERSE_STEER", 0.6))
 CREEP_SPEED = 0.05  # mph; a blocked car reads 0.00, one that is slowly backing out reads more
-SETTLE_SECONDS = 1.0  # a stroke gets this long to get the car going before a dead stop ends it
+SETTLE_SECONDS = 1.0  # a forward push gets this long to get the car going before a dead stop ends it
 HINT_STEER = 0.3  # the driving model steering this hard while stuck hints at the side it is caught on
 MAX_VETOES = 1  # LLM "not stuck" answers accepted in a row before physics wins
 
@@ -148,13 +149,15 @@ class Recovery:
             age = now - self.move_started
             on_time = age < self.move_seconds
             reversing = self.move[1] < 0
-            # A car that is creeping back is getting somewhere, so that reverse gets up to three
-            # times as long. A stroke that has hit a dead stop is over at once: a hooked car only
-            # comes free by rocking back and forth. A forward push also ends once the car rolls
-            creeping = CREEP_SPEED < speed <= STUCK_SPEED and age < 3 * self.move_seconds
-            stopped = age > SETTLE_SECONDS and speed < CREEP_SPEED
-            if not stopped and ((reversing and (on_time or creeping))
-                                or (not reversing and on_time and speed <= STUCK_SPEED)):
+            if reversing:
+                # A reverse holds full throttle for its whole time, however little the car moves.
+                # It ends early only once the car is rolling back fast: it has backed out, and
+                # going on would carry it across the road
+                going = on_time and speed < REVERSE_ENOUGH
+            else:
+                # A forward push ends on a dead stop, or once the car rolls
+                going = on_time and speed <= STUCK_SPEED and not (age > SETTLE_SECONDS and speed < CREEP_SPEED)
+            if going:
                 if self.advice and "verdict" in self.advice:
                     verdict, self.advice = self.advice["verdict"], None
                     self.take_advice(verdict, now)
@@ -180,7 +183,7 @@ class Recovery:
         self.stuck_since = None
         self.recoveries = [t for t in self.recoveries if now - t < 60] + [now]
         attempt = len(self.recoveries)  # within the last minute; it never parks the car, it keeps trying
-        self.reverse_seconds = REVERSE_SECONDS + 0.5 * min(attempt - 1, 2)  # repeats back up a little further
+        self.reverse_seconds = REVERSE_SECONDS + 0.5 * min(attempt - 1, 1)  # repeats back up a little longer
         print(f"🤖 Agent: car not moving for {STUCK_SECONDS:.0f}s, recovery attempt {attempt}; "
               f"vision model is looking at {save_frame(image_b64)}")
         if attempt >= 3:
@@ -218,7 +221,7 @@ class Recovery:
             # Back out with the wheels towards the obstacle and push forward with them away from
             # it: both walk the nose off it. One gentle reverse, which frees a car with room, then
             # full lock. If that fails the car may be pinned along its side: wheels away, then straight
-            steers = [-away * REVERSE_STEER, -away, -away, -away, away, 0.0]
+            steers = [-away * REVERSE_STEER, -away, away, 0.0]
         else:
             # No side known: straight back first, and each repeat attempt starts with a different one
             steers = [0.0, REVERSE_STEER, -REVERSE_STEER]
@@ -282,7 +285,7 @@ def demo():
     # Still stuck every time: it never parks the car, and each repeat backs up a little longer (capped)
     for attempt in (2, 3, 4, 5):
         assert get_stuck(r, drive) == swing_left
-        assert r.move_seconds == REVERSE_SECONDS + 0.5 * min(attempt - 1, 2)
+        assert r.move_seconds == REVERSE_SECONDS + 0.5 * min(attempt - 1, 1)
         t[0] += r.move_seconds + 0.1
         assert drive(9) == model  # rolling after the reverse: straight back to the model
 
@@ -291,19 +294,25 @@ def demo():
     back_toward, back_full = (-REVERSE_STEER, REVERSE_THROTTLE), (-1.0, REVERSE_THROTTLE)
     push = (1.0, 1.0)  # forward, full lock away from the obstacle
     assert get_stuck(r, drive) == back_toward
-    t[0] += REVERSE_SECONDS + 0.1
-    assert drive(0.2) == back_toward  # creeping back: keep at it rather than give up on it
-    t[0] += 2 * REVERSE_SECONDS
-    assert drive(0.2) == push  # the creep got nowhere in three times the time
+    t[0] += REVERSE_SECONDS - 0.2
+    assert drive(0.0) == back_toward  # at a dead stop, and still full reverse for the full time
+    t[0] += 0.3
+    assert drive(0.0) == push
     t[0] += SETTLE_SECONDS - 0.1
-    assert drive(0.0) == push  # not moving yet, but a stroke gets a moment to get going
+    assert drive(0.0) == push  # not moving yet, but a push gets a moment to get going
     t[0] += 0.2
-    assert drive(0.0) == back_full  # dead stop: rock the other way at once, now at full lock
-    t[0] += SETTLE_SECONDS + 0.1
-    assert drive(0.2) == back_full
-    assert drive(0.0) == push  # hit the stop again
+    assert drive(0.0) == back_full  # the push hit a dead stop: back out again, now at full lock
+    t[0] += REVERSE_SECONDS + 0.1
+    assert drive(0.2) == push
     t[0] += 0.5
     assert drive(3) == model and not r.moves  # rolling on the forward push: back to the model
+
+    # A free car is rolling back fast long before the time is up: the reverse ends there
+    r, drive = agent(lambda _: None)
+    assert get_stuck(r, drive) == straight_back
+    t[0] += REVERSE_SECONDS / 2
+    assert drive(REVERSE_ENOUGH - 0.5) == straight_back
+    assert drive(REVERSE_ENOUGH + 0.5) == model and not r.move
 
     # Before the vision model answers, a driving model steering hard right is taken as "obstacle
     # on the left"; an answer naming the same side changes nothing, the other side restarts the plan
@@ -348,7 +357,7 @@ def demo():
     drive(creep)
     t[0] += STUCK_SECONDS + 0.1
     assert drive(creep) == straight_back
-    t[0] += SETTLE_SECONDS + 0.1
+    t[0] += REVERSE_SECONDS + 0.1
     assert drive(0.0) == push
     t[0] += SETTLE_SECONDS + 0.1
     assert drive(0.0) == (REVERSE_STEER, REVERSE_THROTTLE)
