@@ -52,6 +52,8 @@ It prints `🤖 Recovery agent: vision LLM openrouter/free` at startup and `🤖
 - Ran it before? Get the newest version first: `docker pull adityyaa/self-driving-car:agent` (Docker never re-downloads a version it already has)
 - Keep the frames it judged: add `-v ${PWD}/stuck_frames:/app/stuck_frames`
 - Use one specific model instead of whichever free one is available: add `-e LLM_MODEL=google/gemma-4-31b-it:free`
+- Car runs wide on bends and hits posts or barriers: slow it down with `-e MAX_SPEED=7` (default 10 mph)
+- If the agent reports a third attempt within a minute, the car is caught somewhere the simulator's weak reverse cannot get it out of: press Esc and enter Autonomous Mode again
 - Tune it: `-e STUCK_SECONDS=3 -e REVERSE_SECONDS=2.5`
 
 ## Troubleshooting

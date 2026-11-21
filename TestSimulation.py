@@ -19,13 +19,14 @@ import recovery
 # Initialize Socket.IO server and Flask app
 sio = socketio.Server()
 app = Flask(__name__)
-maxSpeed = 10
+maxSpeed = float(os.environ.get("MAX_SPEED", 10))  # mph; lower it if the car runs wide on bends
 
 # Stuck detection + recovery (reverse out, with a vision LLM as judge when configured)
 agent = recovery.Recovery()
 print("🤖 Recovery agent:", f"vision LLM {os.environ.get('LLM_MODEL')}" if recovery.llm
       else "scripted only (set LLM_API_KEY to add the vision LLM)",
       f"(steps in after {recovery.STUCK_SECONDS:.0f}s under {recovery.STUCK_SPEED} mph, never parks the car)")
+print(f"🚗 Target speed {maxSpeed:g} mph (MAX_SPEED)")
 
 # Load trained model
 print("📦 Loading model...")

@@ -183,6 +183,11 @@ class Recovery:
         self.reverse_seconds = REVERSE_SECONDS + 0.5 * min(attempt - 1, 2)  # repeats back up a little further
         print(f"🤖 Agent: car not moving for {STUCK_SECONDS:.0f}s, recovery attempt {attempt}; "
               f"vision model is looking at {save_frame(image_b64)}")
+        if attempt >= 3:
+            # The simulator's reverse is about a third as strong as its forward drive, so a car
+            # hooked on a post or nose-down against something can be beyond any manoeuvre
+            print("🤖 Agent: third attempt within a minute. If it stays caught here, press Esc in the "
+                  "simulator and enter Autonomous Mode again to put the car back on the road")
         self.advice = ask_in_background(self.judge, image_b64)
         # Until the vision model answers: a driving model steering hard one way while stuck is
         # usually pulling away from what it is caught on
