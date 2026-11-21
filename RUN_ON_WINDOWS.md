@@ -36,6 +36,8 @@ The car connects to the AI on port 4567 and drives itself. The PowerShell window
 
 ## Optional: AI stuck recovery
 
+**Use the Version 2 simulator for this** (`beta_simulator.exe` from the download in step 3). The older Version 1 build (folder `simulator-windows-64`, file `Default Windows desktop 64-bit.exe`, dark mountain track) does not respond to reverse, so the car cannot back out of anything in it.
+
 The `:agent` version of the driver gets itself unstuck. If the car has throttle but has not really moved for 3 seconds, it reverses out and lets the model drive again. With a free OpenRouter key, a vision AI looks at the camera frame first to confirm the car is stuck and to see which side the obstacle is on, so the car backs out away from it.
 
 1. Get a free API key:
@@ -53,7 +55,7 @@ It prints `🤖 Recovery agent: vision LLM openrouter/free` at startup and `🤖
 - Keep the frames it judged: add `-v ${PWD}/stuck_frames:/app/stuck_frames`
 - Use one specific model instead of whichever free one is available: add `-e LLM_MODEL=google/gemma-4-31b-it:free`
 - Car runs wide on bends and hits posts or barriers: slow it down with `-e MAX_SPEED=7` (default 10 mph)
-- If the agent reports a third attempt within a minute, the car is caught somewhere the simulator's weak reverse cannot get it out of: press Esc and enter Autonomous Mode again
+- If the agent reports that reverse does nothing, you are on the Version 1 simulator: switch to `beta_simulator.exe`. To put the car back on the road right away, press Esc and enter Autonomous Mode again
 - Tune it: `-e STUCK_SECONDS=3 -e REVERSE_SECONDS=4.5` (seconds of full-throttle reverse per try)
 
 ## Troubleshooting

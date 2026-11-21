@@ -138,6 +138,8 @@ class Recovery:
         self.move_started = 0.0
         self.move_seconds = 0.0
         self.moves = []  # (steering, throttle, seconds) still to come in this recovery
+        self.move_peak = 0.0  # fastest the car has gone during the current move
+        self.dead_reverses = 0  # full-throttle reverses in a row that did not move the car at all
         self.reverse_seconds = REVERSE_SECONDS
         self.side = "ahead"  # side of the obstacle the current plan assumes
         self.recoveries = []  # start times of recent recoveries
@@ -153,7 +155,10 @@ class Recovery:
                 # A reverse holds full throttle for its whole time, however little the car moves.
                 # It ends early only once the car is rolling back fast: it has backed out, and
                 # going on would carry it across the road
+                self.move_peak = max(self.move_peak, speed)
                 going = on_time and speed < REVERSE_ENOUGH
+                if not going:
+                    self.note_reverse()
             else:
                 # A forward push ends on a dead stop, or once the car rolls
                 going = on_time and speed <= STUCK_SPEED and not (age > SETTLE_SECONDS and speed < CREEP_SPEED)
@@ -230,10 +235,18 @@ class Recovery:
         self.moves = [move for steer in steers
                       for move in ((steer, REVERSE_THROTTLE, self.reverse_seconds), (away, 1.0, FORWARD_SECONDS))]
 
+    def note_reverse(self):
+        """A reverse has ended: notice when full reverse throttle does nothing at all."""
+        self.dead_reverses = self.dead_reverses + 1 if self.move_peak < 0.5 else 0
+        if self.dead_reverses == 2:
+            print("🤖 Agent: two full-throttle reverses have not moved the car at all. This simulator build does "
+                  "not seem to respond to reverse, so it cannot be backed out. The older Version 1 simulator "
+                  "(folder simulator-windows-64) behaves like this: use beta_simulator (Version 2) instead")
+
     def next_move(self, now):
         """Start the next step of the manoeuvre."""
         steer, throttle, self.move_seconds = self.moves.pop(0)
-        self.move, self.move_started = (steer, throttle), now
+        self.move, self.move_started, self.move_peak = (steer, throttle), now, 0.0
         print(f"🤖 Agent: {'reversing' if throttle < 0 else 'pushing forward'} {self.move_seconds:.1f}s "
               f"with steering {steer:+.1f}")
         return self.move
@@ -350,6 +363,20 @@ def demo():
     t[0] += REVERSE_SECONDS + 0.1
     answered(r)
     assert drive(9) == model and not r.move
+
+    # Full reverse that never moves the car, twice running: this simulator has no reverse, and it says so
+    r = Recovery(judge=lambda _: None, clock=lambda: t[0])
+    still = lambda: r.step(0.0, *model, img)
+    still()
+    t[0] += STUCK_SECONDS + 0.1
+    assert still() == straight_back
+    t[0] += REVERSE_SECONDS + 0.1
+    assert still() == push and r.dead_reverses == 1
+    t[0] += SETTLE_SECONDS + 0.1
+    assert still()[1] == REVERSE_THROTTLE
+    t[0] += REVERSE_SECONDS + 0.1
+    still()
+    assert r.dead_reverses == 2
 
     # Vision model never answers: the neutral plan runs on its own, no waiting
     gate = threading.Event()
