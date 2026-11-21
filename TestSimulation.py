@@ -23,7 +23,8 @@ maxSpeed = 10
 # Stuck detection + recovery (reverse out, with a vision LLM as judge when configured)
 agent = recovery.Recovery()
 print("🤖 Recovery agent:", f"vision LLM {os.environ.get('LLM_MODEL')}" if recovery.llm
-      else "scripted only (set LLM_API_KEY to add the vision LLM)")
+      else "scripted only (set LLM_API_KEY to add the vision LLM)",
+      f"(steps in after {recovery.STUCK_SECONDS:.0f}s under {recovery.STUCK_SPEED} mph, never parks the car)")
 
 # Load trained model
 print("📦 Loading model...")
@@ -57,11 +58,12 @@ def telemetry(sid, data):
     image = Image.open(BytesIO(base64.b64decode(data["image"])))
     image_array = np.asarray(image)
     image_array = preProcess(image_array)
-    image_array = np.array([image_array])  # Add batch dimension
+    image_array = np.array([image_array], dtype=np.float32)  # Add batch dimension
 
     # Predict steering angle
     try:
-        pred = model.predict(image_array)
+        # Direct call, not model.predict(): same output, ~8x less per-frame overhead, so slow CPUs still steer often enough
+        pred = model(image_array, training=False).numpy()
         print("Model raw output:", pred)
         steering = float(pred[0][0]) if pred.shape[-1] == 1 else float(pred[0])
     except Exception as e:

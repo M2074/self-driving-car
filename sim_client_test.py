@@ -52,5 +52,11 @@ try:
     s, t = drive_until(4.0, lambda t: t > 0, 30)
     assert abs(t - 0.6) < 1e-6, f"throttle should be back to 1 - 4/10 = 0.6, got {t}"
     print(f"PASS handback  steering={s:.3f} throttle={t:.2f}")
+
+    # Stuck again straight away: it must try again, never park the car at zero throttle
+    seen = []
+    s, t = drive_until(0.0, lambda t: seen.append(t) or t < 0, 400)
+    assert 0.0 not in seen, "the agent parked the car instead of retrying"
+    print(f"PASS retry     reversing again after {len(seen)} frames, none at zero throttle  steering={s:+.1f}")
 finally:
     sio.disconnect()  # otherwise the client's background threads keep a failed run alive
