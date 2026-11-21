@@ -21,9 +21,11 @@ from openai import OpenAI
 STUCK_SPEED = float(os.environ.get("STUCK_SPEED", 2.5))  # mph; a wedged car still creeps at ~1 mph, cruising is ~9
 STUCK_SECONDS = float(os.environ.get("STUCK_SECONDS", 3.0))  # this long under throttle below STUCK_SPEED = suspected stuck
 REVERSE_SECONDS = float(os.environ.get("REVERSE_SECONDS", 2.5))  # first attempt; repeats within a minute back up longer
+FORWARD_SECONDS = 2.0  # each forward push of the multi-point turn
 LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", 20))  # seconds to wait for a verdict before recovering without one
-REVERSE_THROTTLE = -0.8  # simulator reverses on negative throttle below 5 mph; retries use full -1.0
+REVERSE_THROTTLE = -1.0  # full reverse; the simulator reverses on negative throttle below 5 mph
 REVERSE_STEER = float(os.environ.get("REVERSE_STEER", 0.6))
+CREEP_SPEED = 0.05  # mph; a blocked car reads 0.00, one that is slowly backing out reads more
 MAX_VETOES = 1  # LLM "not stuck" answers accepted in a row before physics wins
 
 # Any OpenAI-compatible endpoint; the Docker image defaults to OpenRouter
@@ -102,26 +104,30 @@ class Recovery:
         self.pending = None  # verdict the LLM is still working on
         self.pending_since = 0.0
         self.vetoes = 0  # LLM "not stuck" answers since the car last moved
-        self.reverse_until = 0.0
-        self.reverse_started = 0.0
-        self.reverse_seconds = REVERSE_SECONDS
-        self.reverse_steering = 0.0
-        self.reverse_throttle = REVERSE_THROTTLE
-        self.reverse_peak = 0.0  # fastest the car has moved during the current reverse
-        self.options = []  # steering angles still to try in this recovery
+        self.move = None  # (steering, throttle) of the manoeuvre step being driven right now
+        self.move_started = 0.0
+        self.move_seconds = 0.0
+        self.moves = []  # (steering, throttle, seconds) still to come in this recovery
         self.recoveries = []  # start times of recent recoveries
 
     def step(self, speed, steering, throttle, image_b64):
         """Return the (steering, throttle) to send: the model's own, or the recovery manoeuvre's."""
         now = self.clock()
-        if now < self.reverse_until:
-            # A free car is well past STUCK_SPEED / 2 halfway through; a pinned one barely moves
-            self.reverse_peak = max(self.reverse_peak, speed)
-            blocked = now - self.reverse_started > REVERSE_SECONDS / 2 and self.reverse_peak < STUCK_SPEED / 2
-            if blocked and self.options:
-                print(f"🤖 Agent: not backing out with steering {self.reverse_steering:+.1f}, trying another way")
-                return self.reverse(now, -1.0)
-            return self.reverse_steering, self.reverse_throttle
+        if self.move:
+            age = now - self.move_started
+            if self.move[1] < 0:
+                # Backing out. A car that is creeping back is getting somewhere, so it gets up to
+                # three times as long; one at a dead stop does not
+                creeping = CREEP_SPEED < speed <= STUCK_SPEED and age < 3 * self.move_seconds
+                if age < self.move_seconds or creeping:
+                    return self.move
+            elif speed <= STUCK_SPEED and age < self.move_seconds:
+                return self.move  # pushing forward, not rolling yet
+            if speed <= STUCK_SPEED and self.moves:
+                return self.next_move(now)
+            print(f"🤖 Agent: {'rolling again' if speed > STUCK_SPEED else 'still not free'} "
+                  f"at {speed:.1f} mph, back to the model")
+            self.move, self.moves = None, []
         if speed > STUCK_SPEED or throttle <= 0.1:
             # Moving again: a verdict still on its way no longer matters
             self.stuck_since, self.pending, self.vetoes = None, None, 0
@@ -160,27 +166,31 @@ class Recovery:
         reason = verdict["reason"] if verdict else "no LLM verdict"
         if verdict and not verdict["stuck"]:
             reason = "still not moving, overruling the LLM"
-        toward = {"left": -REVERSE_STEER, "right": REVERSE_STEER}.get(side)
-        if toward:
+        away = {"left": 1.0, "right": -1.0}.get(side)  # full lock away from the obstacle
+        if away:
             # Wheels towards the obstacle swings the nose away from it. A car pinned along its
-            # side cannot back out that way, so next come wheels away (peels the tail off), then straight
-            self.options = [toward, -toward, 0.0]
+            # side cannot back out that way, so later tries turn them away, then go straight
+            steers = [-away * REVERSE_STEER, away * REVERSE_STEER, 0.0]
         else:
             # No side known: straight back first, and each repeat attempt starts with a different one
-            self.options = [0.0, REVERSE_STEER, -REVERSE_STEER]
-            self.options = self.options[(attempt - 1) % 3:] + self.options[:(attempt - 1) % 3]
-        self.reverse_seconds = REVERSE_SECONDS + 0.5 * min(attempt - 1, 2)  # repeats back up a little further
+            steers = [0.0, REVERSE_STEER, -REVERSE_STEER]
+            steers = steers[(attempt - 1) % 3:] + steers[:(attempt - 1) % 3]
+            away = 1.0 if attempt % 2 else -1.0
+        seconds = REVERSE_SECONDS + 0.5 * min(attempt - 1, 2)  # repeats back up a little further
+        # A multi-point turn: back out, and if that has not got the car rolling, push forward
+        # with the wheels away from the obstacle, then back out another way
+        self.moves = [move for steer in steers
+                      for move in ((steer, REVERSE_THROTTLE, seconds), (away, 1.0, FORWARD_SECONDS))]
         print(f"🤖 Agent: recovering, attempt {attempt} ({reason}), obstacle {side}")
-        return self.reverse(now, REVERSE_THROTTLE)
+        return self.next_move(now)
 
-    def reverse(self, now, throttle):
-        """Start backing out with the next steering option."""
-        self.reverse_steering, self.reverse_throttle = self.options.pop(0), throttle
-        self.reverse_started, self.reverse_peak = now, 0.0
-        self.reverse_until = now + self.reverse_seconds
-        print(f"🤖 Agent: reversing {self.reverse_seconds:.1f}s with steering {self.reverse_steering:+.1f}, "
-              f"throttle {throttle:+.1f}")
-        return self.reverse_steering, throttle
+    def next_move(self, now):
+        """Start the next step of the manoeuvre."""
+        steer, throttle, self.move_seconds = self.moves.pop(0)
+        self.move, self.move_started = (steer, throttle), now
+        print(f"🤖 Agent: {'reversing' if throttle < 0 else 'pushing forward'} {self.move_seconds:.1f}s "
+              f"with steering {steer:+.1f}")
+        return self.move
 
 
 def demo():
@@ -223,23 +233,25 @@ def demo():
     # Still stuck every time: it never parks the car, and each repeat backs up a little longer (capped)
     for attempt in (2, 3, 4, 5):
         assert get_stuck(r, drive) == swing_left
-        assert abs(r.reverse_until - t[0] - (REVERSE_SECONDS + 0.5 * min(attempt - 1, 2))) < 1e-9
-        t[0] = r.reverse_until + 0.1
+        assert r.move_seconds == REVERSE_SECONDS + 0.5 * min(attempt - 1, 2)
+        t[0] += r.move_seconds + 0.1
+        assert drive(9) == model  # rolling after the reverse: straight back to the model
 
-    # Pinned along its side: the reverse does not move the car, so it works through the other
-    # steering options at full throttle until one does
+    # Boxed in: backing out does not get the car rolling, so it works through a multi-point turn
     r, drive = agent(lambda _: {"stuck": True, "obstacle": "left", "reason": "barrier"})
-    assert get_stuck(r, drive) == (-REVERSE_STEER, REVERSE_THROTTLE)  # wheels towards the obstacle
-    t[0] += REVERSE_SECONDS / 2 - 0.1
-    assert drive(0.2) == (-REVERSE_STEER, REVERSE_THROTTLE)  # too early to call it blocked
-    t[0] += 0.2
-    assert drive(0.2) == (REVERSE_STEER, -1.0)  # wheels away
-    t[0] += REVERSE_SECONDS / 2 + 0.1
-    assert drive(0.2) == (0.0, -1.0)  # straight back
-    t[0] += REVERSE_SECONDS / 2 + 0.1
-    assert drive(0.2) == (0.0, -1.0)  # nothing left to try: finish this one
-    t[0] = r.reverse_until + 0.1
-    assert drive(0.2) == model
+    back_toward, back_away = (-REVERSE_STEER, REVERSE_THROTTLE), (REVERSE_STEER, REVERSE_THROTTLE)
+    push = (1.0, 1.0)  # forward, full lock away from the obstacle
+    assert get_stuck(r, drive) == back_toward
+    t[0] += REVERSE_SECONDS + 0.1
+    assert drive(0.2) == back_toward  # creeping back: keep at it rather than give up on it
+    t[0] += 2 * REVERSE_SECONDS
+    assert drive(0.2) == push  # the creep got nowhere in three times the time
+    t[0] += FORWARD_SECONDS + 0.1
+    assert drive(0.2) == back_away
+    t[0] += REVERSE_SECONDS + 0.1
+    assert drive(0.0) == push  # dead stop: no extra time for that one
+    t[0] += 0.5
+    assert drive(3) == model and not r.moves  # rolling on the forward push: back to the model
 
     # LLM vetoes ("just climbing"): keep driving, but physics wins after MAX_VETOES
     r, drive = agent(lambda _: {"stuck": False, "obstacle": "left", "reason": "clear road"})
@@ -279,9 +291,11 @@ def demo():
     # No LLM configured: straight reverse first, then alternate sides while it stays stuck
     r, drive = agent(lambda _: None)
     assert get_stuck(r, drive) == (0.0, REVERSE_THROTTLE)
-    t[0] = r.reverse_until + 0.1
+    t[0] += r.move_seconds + 0.1
+    drive(9)
     assert get_stuck(r, drive) == (REVERSE_STEER, REVERSE_THROTTLE)
-    t[0] = r.reverse_until + 0.1
+    t[0] += r.move_seconds + 0.1
+    drive(9)
     assert get_stuck(r, drive) == (-REVERSE_STEER, REVERSE_THROTTLE)
 
     assert parse_verdict('```json\n{"stuck": true, "obstacle": "left", "reason": "bank on left"}\n```') == \
