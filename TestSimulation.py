@@ -13,6 +13,7 @@ import base64
 from io import BytesIO
 from PIL import Image
 import cv2
+import traceback
 import recovery
 
 # Initialize Socket.IO server and Flask app
@@ -74,7 +75,10 @@ def telemetry(sid, data):
     throttle = max(0.0, min(1.0, 1.0 - speed / maxSpeed))
 
     # Recovery agent overrides the model while the car is stuck
-    steering, throttle = agent.step(speed, steering, throttle, data["image"])
+    try:
+        steering, throttle = agent.step(speed, steering, throttle, data["image"])
+    except Exception:
+        traceback.print_exc()  # The simulator waits for a reply to every frame: an agent error must not stop it
 
     # Show values
     print(f"➡️ Steering: {steering:.3f}, Throttle: {throttle:.3f}, Speed: {speed:.2f}")
