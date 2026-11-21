@@ -49,6 +49,7 @@ docker run --rm -p 127.0.0.1:4567:4567 -e LLM_API_KEY=sk-or-your-key adityyaa/se
 
 It prints `🤖 Recovery agent: vision LLM openrouter/free` at startup and `🤖 Agent: ...` lines whenever it steps in. Without the key it still recovers, by reversing straight back.
 
+- Ran it before? Get the newest version first: `docker pull adityyaa/self-driving-car:agent` (Docker never re-downloads a version it already has)
 - Keep the frames it judged: add `-v ${PWD}/stuck_frames:/app/stuck_frames`
 - Use one specific model instead of whichever free one is available: add `-e LLM_MODEL=google/gemma-4-31b-it:free`
 - Tune it: `-e STUCK_SECONDS=3 -e REVERSE_SECONDS=2.5`
